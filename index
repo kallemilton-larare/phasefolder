@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exoplanet-labb: Vikning av data</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lägg till MathJax för att rita ut LaTeX-formler snyggt -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        /* Anpassad scrollbar för datarutan */
+        textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        textarea::-webkit-scrollbar-thumb {
+            background: #888; 
+            border-radius: 4px;
+        }
+        textarea::-webkit-scrollbar-thumb:hover {
+            background: #555; 
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        
+        <header class="bg-indigo-600 text-white p-6 rounded-xl shadow-md">
+            <h1 class="text-3xl font-bold">Laboration: Hitta Exoplaneten</h1>
+            <p class="mt-2 text-indigo-100">Klistra in astronomisk rådata (Flux eller RV), bestäm omloppstiden och studera systemet.</p>
+        </header>
+
+        <!-- Del 1: Transit -->
+        <h2 class="text-2xl font-bold text-slate-800 mt-8">Del 1: Transitmetoden (Ljusstyrka)</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Vänster kolumn: Data & Kontroller -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-4">
+                
+                <div>
+                    <label for="dataInput" class="block text-sm font-semibold text-slate-700 mb-1">Rådata (Tid, Relativt Flöde/Flux)</label>
+                    <textarea id="dataInput" class="w-full h-48 p-3 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50 focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="Klistra in CSV (Tid, Flux) här..."></textarea>
+                    <p class="text-xs text-slate-500 mt-1">Formaten ska vara kommaseparerat, t.ex: <code>2455084.667, 0.9995</code></p>
+                </div>
+
+                <div class="pt-4 border-t border-slate-200">
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">1. Ställ in Omloppstid / Period (dagar)</label>
+                    <div class="flex items-center gap-2 mb-2">
+                        <input type="number" id="periodNumber" step="0.00001" value="0.94145" class="w-1/2 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <span class="text-sm text-slate-600">dagar</span>
+                    </div>
+                    <input type="range" id="periodSlider" min="0.1" max="5.0" step="0.00001" value="0.94145" class="w-full accent-indigo-600">
+                </div>
+
+                <div class="pt-2">
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">2. Fasförskjutning (Centrera dippen)</label>
+                    <input type="range" id="shiftSlider" min="0" max="1" step="0.01" value="0.0" class="w-full accent-emerald-500">
+                    <p class="text-xs text-slate-500 mt-1 text-right" id="shiftDisplay">0.00</p>
+                </div>
+
+                <button id="updateBtn" class="mt-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                    Uppdatera Graf
+                </button>
+                
+                <div id="errorMsg" class="hidden text-red-600 text-sm bg-red-50 p-3 rounded border border-red-200">
+                    Kunde inte läsa datan. Kontrollera formatet.
+                </div>
+
+            </div>
+
+            <!-- Höger kolumn: Graf -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Ljuskurva (Vikt data / Phase Folded)</h2>
+                <div class="flex-grow relative h-96 w-full">
+                    <canvas id="transitChart"></canvas>
+                </div>
+                <div class="mt-4 text-sm text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <strong>Tips för analysen:</strong>
+                    <ul class="list-disc pl-5 mt-2 space-y-1">
+                        <li>När man mäter Relativt Flöde (Flux) betyder en dipp neråt att ljuset faktiskt minskar. O-skymt ljus är oftast kring värdet \(1.0\).</li>
+                        <li>Teleskoptid är dyrt! Därför mäter astronomer ofta bara ljuset precis när de förväntar sig att planeten ska passera framför stjärnan. Det är därför du kanske bara ser punkter i en liten del av grafen (t.ex. mellan fas \(0\) och \(0.1\)) istället för utspritt över hela fasen från \(0\) till \(1\).</li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Del 2: Radialhastighet (RV) -->
+        <h2 class="text-2xl font-bold text-slate-800 mt-12 border-t border-slate-300 pt-8">Del 2: Radialhastighetsmetoden (RV)</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
+            
+            <!-- Vänster kolumn: Data & Kontroller för RV -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-4">
+                
+                <div>
+                    <label for="rvDataInput" class="block text-sm font-semibold text-slate-700 mb-1">Rådata (JD, Radialhastighet)</label>
+                    <textarea id="rvDataInput" class="w-full h-48 p-3 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50 focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="Klistra in CSV (Tid, RV) här... Ex: 2453886.623, 45.2"></textarea>
+                    <p class="text-xs text-slate-500 mt-1">Felkolumnen ignoreras automatiskt.</p>
+                </div>
+
+                <div class="pt-4 border-t border-slate-200">
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">1. Ställ in Omloppstid / Period (dagar)</label>
+                    <div class="flex items-center gap-2 mb-2">
+                        <!-- Uppdaterade initialvärden till 0.94145 -->
+                        <input type="number" id="rvPeriodNumber" step="0.00001" value="0.94145" class="w-1/2 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <span class="text-sm text-slate-600">dagar</span>
+                    </div>
+                    <!-- Uppdaterade initialvärdet till 0.94145 -->
+                    <input type="range" id="rvPeriodSlider" min="0.1" max="10.0" step="0.00001" value="0.94145" class="w-full accent-indigo-600">
+                </div>
+
+                <div class="pt-2">
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">2. Fasförskjutning</label>
+                    <input type="range" id="rvShiftSlider" min="0" max="1" step="0.01" value="0.0" class="w-full accent-emerald-500">
+                    <p class="text-xs text-slate-500 mt-1 text-right" id="rvShiftDisplay">0.00</p>
+                </div>
+
+                <button id="rvUpdateBtn" class="mt-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                    Uppdatera RV-Graf
+                </button>
+                
+                <div id="rvErrorMsg" class="hidden text-red-600 text-sm bg-red-50 p-3 rounded border border-red-200">
+                    Kunde inte läsa datan. Kontrollera formatet.
+                </div>
+
+            </div>
+
+            <!-- Höger kolumn: Graf & Sinusanpassning -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Radialhastighetskurva (Phase Folded)</h2>
+                <div class="flex-grow relative h-96 w-full mb-6">
+                    <canvas id="rvChart"></canvas>
+                </div>
+                
+                <!-- Verktyg: Sinusanpassning -->
+                <div class="bg-orange-50 border border-orange-200 p-4 rounded-lg">
+                    <h3 class="text-sm font-bold text-orange-900 mb-4 border-b border-orange-200 pb-2">Teoretisk Sinusanpassning</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-bold text-slate-700">Amplitud (K)</label>
+                                <input type="number" id="sineAmpNum" value="50" class="w-20 p-1 text-xs border border-orange-300 rounded text-right">
+                            </div>
+                            <input type="range" id="sineAmp" min="0" max="500" step="1" value="50" class="w-full accent-orange-500">
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-bold text-slate-700">Systemhastighet (γ)</label>
+                                <input type="number" id="sineOffsetNum" value="0" class="w-24 p-1 text-xs border border-orange-300 rounded text-right">
+                            </div>
+                            <input type="range" id="sineOffset" min="-200" max="200" step="1" value="0" class="w-full accent-orange-500">
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-bold text-slate-700">Fas (X-led)</label>
+                                <input type="number" id="sinePhaseNum" step="0.01" value="0.00" class="w-16 p-1 text-xs border border-orange-300 rounded text-right">
+                            </div>
+                            <input type="range" id="sinePhase" min="0" max="1" step="0.01" value="0.0" class="w-full accent-orange-500">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 text-sm text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <strong>Tips för analysen:</strong>
+                    <ul class="list-disc pl-5 mt-2 space-y-1">
+                        <li>Amplituden (höjden på vågen, \(K\)) berättar om planetens <strong>massa</strong>. En tyngre planet drar hårdare i stjärnan.</li>
+                        <li>En perfekt sinusvåg betyder att banan är cirkulär. Är den skev (sågtandad) är banan elliptisk (excentrisk).</li>
+                        <li>Använd samma periodtid här som du fick fram i transitmetoden för att se om de stämmer överens!</li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- Tom initial data då vi väntar på flux-data ---
+        const initialData = ``;
+
+        // Länka DOM-element
+        const dataInput = document.getElementById('dataInput');
+        const periodNumber = document.getElementById('periodNumber');
+        const periodSlider = document.getElementById('periodSlider');
+        const shiftSlider = document.getElementById('shiftSlider');
+        const shiftDisplay = document.getElementById('shiftDisplay');
+        const updateBtn = document.getElementById('updateBtn');
+        const errorMsg = document.getElementById('errorMsg');
+
+        // Länka DOM-element för RV
+        const rvDataInput = document.getElementById('rvDataInput');
+        const rvPeriodNumber = document.getElementById('rvPeriodNumber');
+        const rvPeriodSlider = document.getElementById('rvPeriodSlider');
+        const rvShiftSlider = document.getElementById('rvShiftSlider');
+        const rvShiftDisplay = document.getElementById('rvShiftDisplay');
+        const rvUpdateBtn = document.getElementById('rvUpdateBtn');
+        const rvErrorMsg = document.getElementById('rvErrorMsg');
+
+        // Sinusanpassning element
+        const sineAmp = document.getElementById('sineAmp');
+        const sineOffset = document.getElementById('sineOffset');
+        const sinePhase = document.getElementById('sinePhase');
+        
+        const sineAmpNum = document.getElementById('sineAmpNum');
+        const sineOffsetNum = document.getElementById('sineOffsetNum');
+        const sinePhaseNum = document.getElementById('sinePhaseNum');
+
+        // Sätt initial data
+        dataInput.value = initialData;
+
+        // Initiera Chart.js grafen
+        const ctx = document.getElementById('transitChart').getContext('2d');
+        const scatterChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Mätpunkter',
+                    data: [],
+                    backgroundColor: 'rgba(79, 70, 229, 0.7)', // Indigo färg
+                    borderColor: 'rgba(79, 70, 229, 1)',
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: { display: true, text: 'Fas (0.0 till 1.0)' },
+                        min: 0,
+                        max: 1
+                    },
+                    y: {
+                        // VIKTIGT: För Flux är lägre värden ljussvagare, vi behöver INTE vända på y-axeln.
+                        reverse: false, 
+                        title: { display: true, text: 'Relativt Flöde (Flux)' }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `Fas: ${context.parsed.x.toFixed(3)}, Flux: ${context.parsed.y.toFixed(5)}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Initiera Chart.js grafen för RV
+        const rvCtx = document.getElementById('rvChart').getContext('2d');
+        const rvScatterChart = new Chart(rvCtx, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: 'RV Mätpunkter',
+                        data: [],
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)', // Röd färg för RV
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    },
+                    { 
+                        label: 'Teoretisk Sinusvåg', 
+                        data: [], 
+                        type: 'line', 
+                        borderColor: 'rgba(249, 115, 22, 0.9)', // Orange linje
+                        borderWidth: 3, 
+                        pointRadius: 0, 
+                        fill: false, 
+                        tension: 0.4 
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: { display: true, text: 'Fas (0.0 till 1.0)' },
+                        min: 0,
+                        max: 1
+                    },
+                    y: {
+                        reverse: false, 
+                        title: { display: true, text: 'Radialhastighet (m/s)' }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                // Visa inte tooltip för sinusvågen
+                                if (context.datasetIndex === 1) return null;
+                                return `Fas: ${context.parsed.x.toFixed(3)}, RV: ${context.parsed.y.toFixed(2)} m/s`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Funktion för att läsa och parsa CSV-texten
+        function parseRawData(text) {
+            const rawLines = text.trim().split('\n');
+            const dataPoints = [];
+            
+            for (let line of rawLines) {
+                line = line.trim();
+                if (!line || line.startsWith('#')) continue;
+                
+                // Hantera både kommatecken och mellanslag som avgränsare
+                const parts = line.split(/[\s,]+/); 
+                
+                if (parts.length >= 2) {
+                    const t = parseFloat(parts[0]);
+                    const m = parseFloat(parts[1]);
+                    if (!isNaN(t) && !isNaN(m)) {
+                        dataPoints.push({ t, m });
+                    }
+                }
+            }
+            return dataPoints;
+        }
+
+        // Huvudfunktion: Vikning av data
+        function updatePlot() {
+            errorMsg.classList.add('hidden');
+            
+            const rawText = dataInput.value;
+            const P = parseFloat(periodNumber.value);
+            const shift = parseFloat(shiftSlider.value);
+            
+            shiftDisplay.innerText = shift.toFixed(2);
+
+            const parsedData = parseRawData(rawText);
+            
+            if (parsedData.length === 0 || isNaN(P) || P <= 0) {
+                errorMsg.classList.remove('hidden');
+                return;
+            }
+
+            // Använd första punkten som t0 (startpunkt)
+            const t0 = parsedData[0].t;
+
+            // Beräkna fas för varje punkt
+            const foldedData = parsedData.map(point => {
+                // Beräkna rå fas (kan vara negativ om t < t0, fast orimligt här)
+                let phase = ((point.t - t0) % P) / P;
+                
+                // Om fasen är negativ, lägg till 1 för att hålla den mellan 0 och 1
+                if (phase < 0) phase += 1;
+                
+                // Applicera den användardefinierade förskjutningen
+                phase = (phase + shift) % 1;
+
+                return {
+                    x: phase,
+                    y: point.m
+                };
+            });
+
+            // Uppdatera grafen
+            scatterChart.data.datasets[0].data = foldedData;
+            scatterChart.update();
+        }
+
+        // Huvudfunktion: Vikning av RV data
+        let lastRvRawText = "";
+
+        function updateRvPlot() {
+            rvErrorMsg.classList.add('hidden');
+            
+            const rawText = rvDataInput.value;
+            const P = parseFloat(rvPeriodNumber.value);
+            const shift = parseFloat(rvShiftSlider.value);
+            
+            rvShiftDisplay.innerText = shift.toFixed(2);
+
+            const parsedData = parseRawData(rawText);
+            
+            if (parsedData.length > 0 && P > 0) {
+                const t0 = parsedData[0].t;
+
+                // --- Autodetektering av centrum och amplitud vid ny data ---
+                if (rawText !== lastRvRawText) {
+                    lastRvRawText = rawText;
+                    const yValues = parsedData.map(p => p.m);
+                    const minY = Math.min(...yValues);
+                    const maxY = Math.max(...yValues);
+                    const avgY = (minY + maxY) / 2;
+                    let ampEst = (maxY - minY) / 2;
+                    if (ampEst === 0) ampEst = 50;
+
+                    // Uppdatera offset-reglaget för att passa datans höjd (Systemhastighet)
+                    sineOffset.min = Math.floor(avgY - Math.max(ampEst * 5, 200));
+                    sineOffset.max = Math.ceil(avgY + Math.max(ampEst * 5, 200));
+                    sineOffset.value = avgY;
+                    sineOffsetNum.value = avgY.toFixed(1);
+
+                    // Uppdatera amplitud-reglaget
+                    sineAmp.max = Math.max(Math.ceil(ampEst * 3), 100);
+                    sineAmp.value = ampEst;
+                    sineAmpNum.value = ampEst.toFixed(1);
+                }
+
+                const foldedData = parsedData.map(point => {
+                    let phase = ((point.t - t0) % P) / P;
+                    if (phase < 0) phase += 1;
+                    phase = (phase + shift) % 1;
+
+                    return {
+                        x: phase,
+                        y: point.m // point.m representerar Radialhastigheten här
+                    };
+                });
+
+                rvScatterChart.data.datasets[0].data = foldedData;
+            } else {
+                 rvScatterChart.data.datasets[0].data = [];
+            }
+
+            // --- Sinusanpassning ---
+            // Läs värden från de numeriska inmatningsfälten som primär källa
+            const K = parseFloat(sineAmpNum.value) || 0;
+            const gamma = parseFloat(sineOffsetNum.value) || 0;
+            const sPhase = parseFloat(sinePhaseNum.value) || 0;
+
+            const sineData = [];
+            // Rita sinusvågen oavsett om det finns data eller inte, så man ser vad man gör
+            for(let x = 0; x <= 1.0; x += 0.01) {
+                const y = K * Math.sin(2 * Math.PI * (x - sPhase)) + gamma;
+                sineData.push({x: x, y: y});
+            }
+            rvScatterChart.data.datasets[1].data = sineData;
+
+            rvScatterChart.update();
+        }
+
+        // --- Event Listeners för att binda ihop reglagen ---
+        
+        // När man skriver i nummmer-rutan uppdateras slidern
+        periodNumber.addEventListener('input', () => {
+            periodSlider.value = periodNumber.value;
+            updatePlot();
+        });
+
+        // När man drar i slidern uppdateras nummer-rutan
+        periodSlider.addEventListener('input', () => {
+            periodNumber.value = periodSlider.value;
+            updatePlot();
+        });
+
+        // När man drar i fasförskjutningen
+        shiftSlider.addEventListener('input', updatePlot);
+
+        // När man klickar på uppdatera-knappen (om man klistrat in ny data)
+        updateBtn.addEventListener('click', updatePlot);
+
+        // --- Event Listeners för RV reglagen ---
+        rvPeriodNumber.addEventListener('input', () => {
+            rvPeriodSlider.value = rvPeriodNumber.value;
+            updateRvPlot();
+        });
+
+        rvPeriodSlider.addEventListener('input', () => {
+            rvPeriodNumber.value = rvPeriodSlider.value;
+            updateRvPlot();
+        });
+
+        rvShiftSlider.addEventListener('input', updateRvPlot);
+        rvUpdateBtn.addEventListener('click', updateRvPlot);
+        
+        // Lyssnare för sinusreglagen (Synka slider och nummer-inmatning)
+        sineAmp.addEventListener('input', (e) => { sineAmpNum.value = e.target.value; updateRvPlot(); });
+        sineAmpNum.addEventListener('input', (e) => { sineAmp.value = e.target.value; updateRvPlot(); });
+        
+        sineOffset.addEventListener('input', (e) => { sineOffsetNum.value = e.target.value; updateRvPlot(); });
+        sineOffsetNum.addEventListener('input', (e) => { 
+            // Utöka sliderns gränser om eleverna skriver in ett enormt värde manuellt
+            if (parseFloat(e.target.value) < parseFloat(sineOffset.min)) sineOffset.min = e.target.value;
+            if (parseFloat(e.target.value) > parseFloat(sineOffset.max)) sineOffset.max = e.target.value;
+            sineOffset.value = e.target.value; 
+            updateRvPlot(); 
+        });
+        
+        sinePhase.addEventListener('input', (e) => { sinePhaseNum.value = e.target.value; updateRvPlot(); });
+        sinePhaseNum.addEventListener('input', (e) => { sinePhase.value = e.target.value; updateRvPlot(); });
+
+        // Kör en inledande plot när sidan laddas
+        updatePlot();
+        updateRvPlot();
+        
+    </script>
+</body>
+</html>
